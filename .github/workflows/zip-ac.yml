@@ -7,37 +7,87 @@ permissions:
   contents: write
 
 jobs:
-  zip-ac:
+  unzip:
     runs-on: ubuntu-latest
 
     steps:
       - name: Depoyu indir
         uses: actions/checkout@v4
 
-      - name: ZIP dosyasını aç
+      - name: ZIP dosyasını bul ve aç
+        shell: bash
         run: |
-          rm -rf acilan
-          mkdir acilan
-          unzip -o "SeymasOfis_TekProgram_v2_CariBorclu.zip" -d acilan
+          set -e
 
-      - name: Proje dosyalarını yerleştir
-        run: |
-          shopt -s dotglob nullglob
-          items=(acilan/*)
+          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -n 1)
 
-          if [ ${#items[@]} -eq 1 ] && [ -d "${items[0]}" ]; then
-            cp -R "${items[0]}"/. .
-          else
-            cp -R acilan/. .
+          if [ -z "$ZIP_FILE" ]; then
+            echo "HATA: ZIP dosyası bulunamadı."
+            exit 1
           fi
 
-          rm -rf acilan
-          rm -f "SeymasOfis_TekProgram_v2_CariBorclu.zip"
+          echo "ZIP bulundu: $ZIP_FILE"
+
+          mkdir -p /tmp/seyma_zip
+          unzip -o "$ZIP_FILE" -d /tmp/seyma_zip
+
+          echo "ZIP açıldı."
+          echo "İçerik:"
+          find /tmp/seyma_zip -maxdepth 3 -type f | head -100
+
+      - name: Android projesini ana klasöre yerleştir
+        shell: bash
+        run: |
+          set -e
+
+          PROJECT_ROOT=""
+
+          SETTINGS_FILE=$(find /tmp/seyma_zip -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) | head -n 1)
+
+          if [ -n "$SETTINGS_FILE" ]; then
+            PROJECT_ROOT=$(dirname "$SETTINGS_FILE")
+          fi
+
+          if [ -z "$PROJECT_ROOT" ]; then
+            echo "UYARI: settings.gradle bulunamadı."
+            echo "ZIP içeriği doğrudan ana klasöre aktarılıyor."
+            PROJECT_ROOT="/tmp/seyma_zip"
+          fi
+
+          echo "Proje klasörü: $PROJECT_ROOT"
+
+          cp -r "$PROJECT_ROOT"/. ./ 
+
+      - name: ZIP dosyasını sil
+        shell: bash
+        run: |
+          find . -maxdepth 2 -type f -iname "*.zip" -delete
+          rm -rf /tmp/seyma_zip
+
+      - name: Dosyaları kontrol et
+        shell: bash
+        run: |
+          echo "Android proje dosyaları:"
+          find . -maxdepth 3 -type f \
+            \( -name "settings.gradle" \
+            -o -name "settings.gradle.kts" \
+            -o -name "build.gradle" \
+            -o -name "build.gradle.kts" \
+            -o -name "gradlew" \
+            -o -name "AndroidManifest.xml" \) \
+            -print
 
       - name: Değişiklikleri GitHub'a kaydet
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --quiet || git commit -m "ZIP dosyasını aç"
-          git push
+
+          git add .
+
+          if git diff --cached --quiet; then
+            echo "Yeni değişiklik yok."
+          else
+            git commit -m "ZIP dosyasındaki Android projesini çıkar"
+            git push
+          fi
